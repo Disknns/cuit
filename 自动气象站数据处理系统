@@ -1,0 +1,312 @@
+#include <graphics.h>
+#include <conio.h>
+#include <string.h>
+#include <windows.h>
+#include <stdio.h>
+#include <math.h>
+#include <stdlib.h>
+#include <limits.h>
+
+#define BASE_PATH "D:\\0\\Project1\\data"
+
+// 数据结构定义
+typedef struct {
+    int date;         // 日期（格式：YYYYMMDD）
+    float rainfall;   // 每小时降水量（毫米）
+    float humidity;   // 每小时相对湿度（百分比）
+} HourlyData;
+
+typedef struct {
+    int date;         // 日期（格式：YYYYMMDD）
+    float rainfall;   // 每日累积降水量
+} DailyData;
+
+// 函数声明
+void showWelcome();
+void showMenu();
+void clearScreen();
+void searchFiles();
+void countFilesAndCheckMissing();
+void parse_and_analyze();
+void parseZFile(const char* fileName, HourlyData data[], int* dataCount);
+void analyzeData(const HourlyData data[], int dataCount);
+void drawDailyRainfall(const DailyData dailyData[], int numDays);
+void drawHourlyRainfallHumidity(const HourlyData data[], int dataCount);
+float calculateCorrelation(const HourlyData data[], int dataCount);
+
+int main() {
+    showWelcome();
+	int choice = 0;//选择
+
+    while (1) {
+        showMenu();
+        printf("请输入你的选择：\n");
+        scanf_s("%d", &choice);
+        switch (choice) {
+        case 1:
+            printf("分类\n");
+            system("D:\\0\\project1\\wenjian.bat");
+            clearScreen();
+            printf("\n文件已成功分类\n");
+            break;
+        case 2:
+            printf("查询\n");
+            clearScreen();
+            searchFiles();
+            break;
+        case 3:
+            printf("统计\n");
+            clearScreen();
+            countFilesAndCheckMissing();
+            break;
+        case 4:
+            printf("数据解析与分析\n");
+            clearScreen();
+            parse_and_analyze();
+            break;
+        case 5:
+            printf("退出\n");
+            clearScreen();
+            return 0;
+        default:
+            clearScreen();
+            printf("无效的选择，请重新输入\n");
+            break;
+        }
+    }
+    return 0;
+}
+
+void showWelcome() {
+    printf("欢迎使用自动气象站处理系统\n");
+}
+
+void showMenu() {
+    printf("请选择功能:\n");
+    printf("1. 分类\n");
+    printf("2. 查询\n");
+    printf("3. 统计\n");
+    printf("4. 数据解析与分析\n");
+    printf("5. 退出\n");
+}
+
+void clearScreen() {
+	system("cls");//清屏
+}
+
+void searchFiles() {
+	FILE* file;//文件指针
+    int year, month;
+	char folder_name[100];//文件夹名
+
+    printf("请输入年和月：");
+    scanf_s("%d %d", &year, &month);
+    year = year % 1000;
+    month %= 100;
+
+	snprintf(folder_name, sizeof(folder_name), "D:\\0\\Project1\\newdata\\Z58265\\Z58265%02d.%03d", month, year);//文件夹路径
+
+    fopen_s(&file, folder_name, "r");
+    if (file != NULL) {
+        clearScreen();
+        printf("文件：Z58265%02d.%03d 存在\n", month, year);
+        fclose(file);
+    }
+    else {
+        clearScreen();
+        printf("文件：Z58265%02d.%03d 不存在\n", month, year);
+    }
+}
+
+void countFilesAndCheckMissing() {
+    int year, count = 0, missingFiles = 0;
+    int month;
+    char filePath[256];
+    FILE* file;
+    errno_t err;
+
+    printf("请输入年份：");
+    scanf_s("%d", &year);
+
+    for (month = 1; month <= 12; month++) {
+        sprintf_s(filePath, "D:\\0\\Project1\\newdata\\Z58265\\Z58265%02d.%03d", month, year % 1000);
+
+        err = fopen_s(&file, filePath, "r");
+        if (err == 0) {
+            count++;
+            fclose(file);
+        }
+        else {
+            missingFiles++;
+            printf("缺失文件：%s\n", filePath);
+        }
+    }
+
+    printf("年份 %03d 总共找到 %d 个文件。\n", year % 1000, count);
+    if (missingFiles > 0) {
+        printf("年份 %03d 发现 %d 个缺失文件。\n", year % 1000, missingFiles);
+    }
+    else {
+        printf("年份 %03d 没有发现缺失文件。\n", year % 1000);
+    }
+}
+
+void parse_and_analyze() {
+    int year, month;
+    char fileName[100];
+    HourlyData hourlyData[31 * 24]; // 假设一个月最多31天，每天24小时
+    int dataCount = 0;
+
+    printf("请输入年份和月份 (格式: 年 月)：");
+    scanf_s("%d %d", &year, &month);
+
+    snprintf(fileName, sizeof(fileName), BASE_PATH "\\Z58265%02d.%03d", month, year % 1000);
+
+    parseZFile(fileName, hourlyData, &dataCount);
+
+    if (dataCount > 0) {
+        analyzeData(hourlyData, dataCount);
+    }
+    else {
+        printf("未找到有效的数据进行分析\n");
+    }
+}
+
+void parseZFile(const char* fileName, HourlyData data[], int* dataCount) {
+    FILE* file;
+    char buffer[218];
+    *dataCount = 0;
+
+    fopen_s(&file, fileName, "r");
+    if (file == NULL) {
+        printf("文件 %s 无法打开\n", fileName);
+        return;
+    }
+
+    while (fgets(buffer, sizeof(buffer), file)) {
+        float rainfall, humidity;
+        char rainfallStr[5] = { 0 };
+        char humidityStr[5] = { 0 };
+
+        strncpy_s(rainfallStr, sizeof(rainfallStr), buffer + 50, 4);
+        strncpy_s(humidityStr, sizeof(humidityStr), buffer + 60, 4);
+
+        rainfall = atof(rainfallStr);
+        humidity = atof(humidityStr);
+
+        data[*dataCount].rainfall = rainfall;
+        data[*dataCount].humidity = humidity;
+        (*dataCount)++;
+    }
+
+    fclose(file);
+}
+
+void analyzeData(const HourlyData data[], int dataCount) {
+    float totalRainfall = 0;
+    int stormyDays = 0;
+
+    for (int i = 0; i < dataCount; i++) {
+        totalRainfall += data[i].rainfall;
+        if (data[i].rainfall > 50.0) {
+            stormyDays++;
+        }
+    }
+
+    printf("24小时总降水量: %.2f 毫米\n", totalRainfall);
+    printf("暴雨天数 (降水量 > 50 毫米): %d 天\n");
+
+    float correlation = calculateCorrelation(data, dataCount);
+    printf("小时累积降水量和相对湿度的相关系数: %.2f\n", correlation);
+
+    initgraph(800, 600);
+    drawHourlyRainfallHumidity(data, dataCount);
+    _getch();
+    closegraph();
+}
+
+void drawDailyRainfall(const DailyData dailyData[], int numDays) {
+    int barWidth = 20;
+    int spacing = 5;
+
+    setbkcolor(WHITE);
+    cleardevice();
+
+    setcolor(BLUE);
+    setfillcolor(LIGHTBLUE);
+
+    line(50, 550, 50, 50);
+    line(50, 550, 750, 550);
+
+    for (int i = 0; i < numDays; i++) {
+        int barHeight = dailyData[i].rainfall * 5;
+        int x = 60 + i * (barWidth + spacing);
+        int y = 550 - barHeight;
+
+        bar(x, y, x + barWidth, 550);
+        char dateText[12];
+        sprintf(dateText, "%d", dailyData[i].date);
+        outtextxy(x, 560, dateText);
+    }
+
+    outtextxy(300, 20, "Daily Rainfall (mm)");
+}
+
+void drawHourlyRainfallHumidity(const HourlyData data[], int dataCount) {
+    int xStart = 50, yStart = 550, xEnd = 750, yEnd = 50;
+
+    setbkcolor(WHITE);
+    cleardevice();
+
+    line(xStart, yStart, xStart, yEnd);
+    line(xStart, yStart, xEnd, yStart);
+
+    setcolor(BLUE);
+    for (int i = 1; i < dataCount; i++) {
+        int x1 = xStart + i * 30;
+        int y1 = yStart - data[i - 1].rainfall * 10;
+        int x2 = xStart + (i + 1) * 30;
+        int y2 = yStart - data[i].rainfall * 10;
+        line(x1, y1, x2, y2);
+    }
+
+    setcolor(RED);
+    for (int i = 1; i < dataCount; i++) {
+        int x1 = xStart + i * 30;
+        int y1 = yStart - data[i - 1].humidity * 5;
+        int x2 = xStart + (i + 1) * 30;
+        int y2 = yStart - data[i].humidity * 5;
+        line(x1, y1, x2, y2);
+    }
+
+    outtextxy(300, 20, "Hourly Rainfall & Humidity");
+}
+
+float calculateCorrelation(const HourlyData data[], int dataCount) {
+    if (dataCount == 0) {
+        printf("没有足够的数据进行计算\n");
+        return 0.0;
+    }
+
+    float sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+    for (int i = 0; i < dataCount; i++) {
+        float x = data[i].rainfall;
+        float y = data[i].humidity;
+
+        sumX += x;
+        sumY += y;
+        sumXY += x * y;
+        sumX2 += x * x;
+        sumY2 += y * y;
+    }
+
+    float numerator = (dataCount * sumXY) - (sumX * sumY);
+    float denominator = sqrt((dataCount * sumX2 - sumX * sumX) * (dataCount * sumY2 - sumY * sumY));
+
+    if (denominator == 0) return 0.0;
+
+    return numerator / denominator;
+}
+
+
+
